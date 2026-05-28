@@ -256,6 +256,8 @@ footer{padding:.65rem 1rem;border-top:1px solid var(--bd);display:flex;justify-c
   <div class="rg" id="lg">
     <button class="rb on" onclick="setLayer('blob',this)">🔵 Cuaca</button>
     <button class="rb" onclick="setLayer('heat',this)">🌡 Panas</button>
+  <div class="sep"></div>
+  <button class="rb on" id="btn-radar" onclick="toggleRadar(this)" style="border-color:rgba(96,165,250,.4);color:var(--rn)">🛰 Radar</button>
   </div>
   <button class="locbtn" onclick="locateMe()"><span class="dot"></span>GPS</button>
 </div>
@@ -355,11 +357,38 @@ function distKm(lat,lng){
 }
 
 // ── MAP ───────────────────────────────────────────────
+var radarLayer=null;
+
 function initMap(){
   map=L.map('map',{zoomControl:true,tap:true}).setView(CENTER,14);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© OSM © CARTO',maxZoom:19,subdomains:'abcd'}).addTo(map);
   mgrp=L.layerGroup().addTo(map);
   addMeMarker();
+  loadRadar();
+}
+
+function loadRadar(){
+  fetch('https://api.rainviewer.com/public/weather-maps.json')
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(radarLayer){map.removeLayer(radarLayer);radarLayer=null;}
+      var frames=d.radar&&d.radar.past?d.radar.past:[];
+      if(!frames.length)return;
+      var latest=frames[frames.length-1];
+      // Gunakan /256/ bukan /512/ agar kompatibel semua zoom
+      var tileUrl=d.host+latest.path+'/256/{z}/{x}/{y}/4/1_1.png';
+      radarLayer=L.tileLayer(tileUrl,{
+        opacity:0.65,
+        zIndex:200,
+        attribution:'RainViewer',
+        // Batasi min/max zoom agar tidak muncul "Zoom Level Not Supported"
+        minZoom:1,
+        maxZoom:18,
+        errorTileUrl:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+      });
+      radarLayer.addTo(map);
+    })
+    .catch(function(e){console.warn('RainViewer gagal:',e);});
 }
 function addMeMarker(){
   L.marker(CENTER,{icon:L.divIcon({
@@ -721,6 +750,12 @@ function showToast(title,msg,type){
   toastTimer=setTimeout(function(){t.classList.add('hide');setTimeout(function(){if(t.parentNode)t.remove();},300);},5000);
 }
 
+function toggleRadar(btn){
+  if(!radarLayer)return;
+  if(map.hasLayer(radarLayer)){map.removeLayer(radarLayer);btn.classList.remove("on");btn.style.opacity=".5";}
+  else{radarLayer.addTo(map);btn.classList.add("on");btn.style.opacity="1";}
+}
+
 function setR(r,btn){
   radius=r;
   document.querySelectorAll('#rg .rb').forEach(function(b){b.classList.remove('on');});
@@ -763,6 +798,7 @@ initMap();
 loadAll();
 setTimeout(function(){if(!panelOpen)togglePanel();},1500);
 setInterval(loadAll,600000);
+setInterval(loadRadar,600000); // refresh radar tiap 10 menit
 </script>
 </body>
 </html>
