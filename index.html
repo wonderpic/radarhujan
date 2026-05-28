@@ -368,30 +368,27 @@ function initMap(){
 }
 
 function loadRadar(){
-  // Pakai Open-Meteo WMS precipitation layer — tidak ada Zoom Level error
   if(radarLayer){map.removeLayer(radarLayer);radarLayer=null;}
-  // Layer 1: Precipitation overlay dari met.no (gratis, tanpa API key, global)
-  radarLayer = L.tileLayer(
-    'https://tilecache.rainviewer.com/v2/coverage/0/{z}/{x}/{y}/4/1_1.png',
-    {
-      opacity: 0,
-      zIndex: 200,
-      attribution: '',
-      errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-    }
-  );
-  // Gunakan Windy tiles sebagai fallback visual — ini bekerja di semua zoom
-  var windyRadar = L.tileLayer(
-    'https://a.sat.owm.io/maps/2.0/weather/PA0/{z}/{x}/{y}?appid=9de243494c0b295cca9337e1e96b00e2&date=0&opacity=0.6',
-    {
-      opacity: 0.6,
-      zIndex: 200,
-      attribution: 'OpenWeatherMap',
-      errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-    }
-  );
-  radarLayer = windyRadar;
-  radarLayer.addTo(map);
+  // RainViewer — ambil frame terbaru, pakai colorScheme=8 (warna cerah tanpa background putih)
+  // Tile ini TIDAK menampilkan "Zoom Level Not Supported" karena kita handle errorTileUrl
+  fetch('https://api.rainviewer.com/public/weather-maps.json')
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var frames=d.radar&&d.radar.past?d.radar.past:[];
+      if(!frames.length)return;
+      var latest=frames[frames.length-1];
+      // colorScheme=8 (Meteored), smooth=1, snow=1 — tidak ada tile error text
+      var url=d.host+latest.path+'/256/{z}/{x}/{y}/8/1_1.png';
+      radarLayer=L.tileLayer(url,{
+        opacity:0.7,
+        zIndex:200,
+        attribution:'© RainViewer',
+        // Tile transparan sebagai pengganti tile kosong — TIDAK ada tulisan apapun
+        errorTileUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+      });
+      radarLayer.addTo(map);
+    })
+    .catch(function(){});
 }
 function addMeMarker(){
   L.marker(CENTER,{icon:L.divIcon({
