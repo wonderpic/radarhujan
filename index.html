@@ -247,10 +247,10 @@ footer{padding:.65rem 1rem;border-top:1px solid var(--bd);display:flex;justify-c
 <div class="ctrl">
   <span class="cl2">Radius:</span>
   <div class="rg" id="rg">
-    <button class="rb" onclick="setR(0.5,this)">500m</button>
-    <button class="rb on" onclick="setR(1,this)">1km</button>
+    <button class="rb" onclick="setR(1,this)">1km</button>
     <button class="rb" onclick="setR(2,this)">2km</button>
     <button class="rb" onclick="setR(5,this)">5km</button>
+    <button class="rb on" onclick="setR(10,this)">10km</button>
   </div>
   <div class="sep"></div>
   <div class="rg" id="lg">
@@ -319,12 +319,13 @@ footer{padding:.65rem 1rem;border-top:1px solid var(--bd);display:flex;justify-c
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 var CENTER=[-6.9175,107.6191],CNAME='Bandung, Jawa Barat';
-var radius=1,layerMode='blob',panelOpen=false;
+var radius=10,layerMode='blob',panelOpen=false;
 var map,mgrp,rcirc,allZones=[];
 var notifOn=false,lastNotifTime=0;
 var currentWeatherSummary='';
 
 var OFFSETS=[
+  // Zona 1-2 km
   {name:'Utara',dir:'U',dlat:0.009,dlng:0},
   {name:'Timur Laut',dir:'TL',dlat:0.006,dlng:0.007},
   {name:'Timur',dir:'T',dlat:0,dlng:0.010},
@@ -332,7 +333,21 @@ var OFFSETS=[
   {name:'Selatan',dir:'S',dlat:-0.009,dlng:0},
   {name:'Barat Daya',dir:'BD',dlat:-0.006,dlng:-0.007},
   {name:'Barat',dir:'B',dlat:0,dlng:-0.010},
-  {name:'Barat Laut',dir:'BL',dlat:0.006,dlng:-0.007}
+  {name:'Barat Laut',dir:'BL',dlat:0.006,dlng:-0.007},
+  // Zona 5 km
+  {name:'Utara Jauh',dir:'U',dlat:0.045,dlng:0},
+  {name:'Timur Jauh',dir:'T',dlat:0,dlng:0.050},
+  {name:'Selatan Jauh',dir:'S',dlat:-0.045,dlng:0},
+  {name:'Barat Jauh',dir:'B',dlat:0,dlng:-0.050},
+  // Zona 10 km
+  {name:'Utara 10km',dir:'U',dlat:0.090,dlng:0},
+  {name:'Timur Laut 10km',dir:'TL',dlat:0.063,dlng:0.070},
+  {name:'Timur 10km',dir:'T',dlat:0,dlng:0.100},
+  {name:'Tenggara 10km',dir:'TG',dlat:-0.063,dlng:0.070},
+  {name:'Selatan 10km',dir:'S',dlat:-0.090,dlng:0},
+  {name:'Barat Daya 10km',dir:'BD',dlat:-0.063,dlng:-0.070},
+  {name:'Barat 10km',dir:'B',dlat:0,dlng:-0.100},
+  {name:'Barat Laut 10km',dir:'BL',dlat:0.063,dlng:-0.070}
 ];
 
 var WMO={
@@ -402,8 +417,18 @@ function fetchOne(lat,lng){
   var url='https://api.open-meteo.com/v1/forecast'
     +'?latitude='+lat+'&longitude='+lng
     +'&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,wind_gusts_10m'
-    +'&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m'
-    +'&forecast_days=1&timezone=Asia%2FJakarta';
+    +'&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m,precipitation'
+    +'&forecast_days=2&timezone=Asia%2FJakarta';
+  return fetch(url).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});
+}
+
+// Fetch khusus untuk CENTER — dapat data lengkap prediksi
+function fetchCenter(){
+  var url='https://api.open-meteo.com/v1/forecast'
+    +'?latitude='+CENTER[0]+'&longitude='+CENTER[1]
+    +'&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,wind_gusts_10m'
+    +'&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m,precipitation'
+    +'&forecast_days=2&timezone=Asia%2FJakarta';
   return fetch(url).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});
 }
 
@@ -496,8 +521,18 @@ function loadAll(){
     if(ok===0){setAlert('err','❌','Gagal terhubung. Periksa koneksi lalu Refresh.');}
     else{renderAlert(active);checkBMKGWarn(ok);}
     renderAll();
-    var wh=null;for(var i=0;i<zones.length;i++){if(zones[i].ok&&zones[i].hourly){wh=zones[i];break;}}
-    if(wh){renderRainPanel(wh.hourly);renderForecast(wh.hourly);checkRainNotif(wh.hourly);}
+    // Ambil data CENTER langsung untuk prediksi & prakiraan yang akurat
+    fetchCenter().then(function(cd){
+      if(cd&&cd.hourly){
+        renderRainPanel(cd.hourly);
+        renderForecast(cd.hourly);
+        checkRainNotif(cd.hourly);
+      }
+    }).catch(function(){
+      // fallback ke zona pertama
+      var wh=null;for(var i=0;i<zones.length;i++){if(zones[i].ok&&zones[i].hourly){wh=zones[i];break;}}
+      if(wh){renderRainPanel(wh.hourly);renderForecast(wh.hourly);checkRainNotif(wh.hourly);}
+    });
     // Buat ringkasan cuaca untuk share
     if(active.length>0){
       var rn=active.filter(function(z){return z.status==='rain'||z.status==='storm';}).length;
@@ -581,7 +616,7 @@ function renderChips(active){
 function renderForecast(h){
   if(!h||!h.time)return;
   var now=new Date(),items=[],n=0;
-  for(var i=0;i<h.time.length&&n<12;i++){
+  for(var i=0;i<h.time.length&&n<24;i++){
     var t=new Date(h.time[i]);
     if(t<now-1800000)continue;
     var w=gw(h.weather_code[i]);
@@ -610,7 +645,7 @@ function renderRainPanel(hourly){
   if(!hourly||!hourly.time)return;
   var now=new Date(),probs=hourly.precipitation_probability||[];
   var items=[],maxPct=0,firstRainIn=-1,firstRainTime='',count=0;
-  for(var i=0;i<hourly.time.length&&count<12;i++){
+  for(var i=0;i<hourly.time.length&&count<24;i++){
     var t=new Date(hourly.time[i]);
     if(t<now)continue;
     var pct=Math.round(probs[i]||0);
@@ -760,7 +795,7 @@ function setR(r,btn){
   radius=r;
   document.querySelectorAll('#rg .rb').forEach(function(b){b.classList.remove('on');});
   btn.classList.add('on');
-  map.setView(CENTER,r<=.5?16:r<=1?15:r<=2?14:13,{animate:true});
+  map.setView(CENTER,r<=1?15:r<=2?14:r<=5?13:12,{animate:true});
   renderAll();
 }
 
