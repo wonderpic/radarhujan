@@ -153,6 +153,8 @@ footer{padding:.65rem 1rem;border-top:1px solid var(--bd);display:flex;justify-c
 @keyframes tout{to{opacity:0;transform:translateX(-50%) translateY(-14px)}}
 .ti{font-size:18px;flex-shrink:0}.tt{font-weight:600;margin-bottom:2px;font-size:12px}.tm{font-size:11px;color:var(--mt);line-height:1.5}
 
+/* Layer toggle */
+.rb.off{opacity:.4;border-style:dashed}
 @media(min-width:600px){#map{height:440px}.hero,.ctrl{padding:.85rem 1.25rem}.fc-section,.weekly-grid{padding:.85rem 1.25rem}}
 </style>
 </head>
@@ -245,6 +247,13 @@ footer{padding:.65rem 1rem;border-top:1px solid var(--bd);display:flex;justify-c
     <button class="rb" onclick="setR(5,this)">5km</button>
     <button class="rb on" onclick="setR(10,this)">10km</button>
   </div>
+  <div class="sep"></div>
+  <span class="cl2">Layer:</span>
+  <div class="rg" id="lg">
+    <button class="rb on" id="lb-radar" onclick="toggleLayer('radar',this)" title="Radar hujan lebat">🛰 Radar</button>
+    <button class="rb on" id="lb-sat" onclick="toggleLayer('sat',this)" title="Awan satelit NASA">🌥 Awan</button>
+    <button class="rb on" id="lb-zone" onclick="toggleLayer('zone',this)" title="Overlay zona cuaca">🔵 Zona</button>
+  </div>
   <button class="locbtn" onclick="locateMe()"><span class="dot"></span>GPS</button>
 </div>
 
@@ -256,6 +265,7 @@ footer{padding:.65rem 1rem;border-top:1px solid var(--bd);display:flex;justify-c
     <div class="lr"><div class="ld" style="background:#60a5fa"></div>Hujan</div>
     <div class="lr"><div class="ld" style="background:#fbbf24"></div>Gerimis</div>
     <div class="lr"><div class="ld" style="background:#34d399"></div>Cerah</div>
+    <div class="lr" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--bd)"><div class="ld" style="background:rgba(255,255,255,.3);border:1px solid rgba(255,255,255,.2)"></div>Awan satelit</div>
   </div>
 </div>
 
@@ -329,6 +339,7 @@ function initMap(){
   mgrp=L.layerGroup().addTo(map);
   addMeMarker();
   loadRadar();
+  loadSatellite();
 }
 
 function addMeMarker(){
@@ -338,7 +349,11 @@ function addMeMarker(){
   })}).bindPopup('<b>📍 Posisimu</b><br><span style="color:#7a94c1;font-size:12px">'+CNAME+'</span>').addTo(map);
 }
 
-// ── RADAR (tile error disembunyikan) ──────────────────
+// ── STATE LAYER ───────────────────────────────────────
+var layerState={radar:true, sat:true, zone:true};
+var satLayer=null, zoneGroup=null;
+
+// ── RADAR — hujan lebat (RainViewer) ─────────────────
 function loadRadar(){
   fetch('https://api.rainviewer.com/public/weather-maps.json')
     .then(function(r){return r.json();})
@@ -347,18 +362,64 @@ function loadRadar(){
       var frames=d.radar&&d.radar.past?d.radar.past:[];
       if(!frames.length)return;
       var url=d.host+frames[frames.length-1].path+'/256/{z}/{x}/{y}/2/1_1.png';
-      radarLayer=L.tileLayer(url,{
-        opacity:0.7, zIndex:200, attribution:'RainViewer',
-        // tile transparan 1x1 sebagai pengganti tile error
-        errorTileUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
-      });
-      // Sembunyikan tile error via event
-      radarLayer.on('tileerror',function(e){
-        e.tile.style.opacity='0';
-        e.tile.style.display='none';
-      });
-      radarLayer.addTo(map);
+      var BLANK='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      radarLayer=L.tileLayer(url,{opacity:0.75,zIndex:300,attribution:'RainViewer',errorTileUrl:BLANK});
+      radarLayer.on('tileerror',function(e){e.tile.style.display='none';});
+      if(layerState.radar) radarLayer.addTo(map);
     }).catch(function(){});
+}
+
+// ── SATELIT AWAN — NASA GIBS (foto satelit real-time) ─
+function loadSatellite(){
+  if(satLayer){map.removeLayer(satLayer);satLayer=null;}
+  // NASA GIBS VIIRS True Color — diperbarui harian, menampilkan awan nyata
+  // Coba MODIS jika VIIRS tidak tersedia
+  var today=new Date();
+  var dd=today.toISOString().slice(0,10);
+  var url='https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/'
+    +'VIIRS_NOAA20_CorrectedReflectance_TrueColor/default/'
+    +dd+'/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg';
+  var BLANK='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  satLayer=L.tileLayer(url,{
+    opacity:0.55, zIndex:150, attribution:'NASA GIBS',
+    maxZoom:9, // NASA GIBS max zoom 9 — di atas itu transparan
+    errorTileUrl:BLANK
+  });
+  satLayer.on('tileerror',function(e){e.tile.style.display='none';});
+  if(layerState.sat) satLayer.addTo(map);
+}
+
+// ── OVERLAY ZONA — dari data Open-Meteo (termasuk gerimis) ──
+function drawZoneOverlay(dirs){
+  if(zoneGroup){map.removeLayer(zoneGroup);zoneGroup=null;}
+  zoneGroup=L.layerGroup();
+  var ZCOL={storm:'#f87171',rain:'#60a5fa',drizzle:'#fbbf24',clear:'rgba(52,211,153,0)',cloudy:'rgba(148,163,184,0)'};
+  var ZOP={storm:0.55,rain:0.45,drizzle:0.35,clear:0,cloudy:0.05};
+  dirs.filter(function(z){return z.ok&&(z.status==='rain'||z.status==='storm'||z.status==='drizzle');}).forEach(function(z){
+    var col=ZCOL[z.status]||'rgba(0,0,0,0)';
+    var op=ZOP[z.status]||0;
+    if(op<=0)return;
+    // Blob besar semi-transparan untuk visualisasi gerimis/hujan
+    L.circle([z.lat,z.lng],{
+      radius:radius*1000*0.55,
+      color:'none',weight:0,
+      fillColor:col,fillOpacity:op
+    }).addTo(zoneGroup);
+  });
+  if(layerState.zone) zoneGroup.addTo(map);
+}
+
+// ── TOGGLE LAYER ──────────────────────────────────────
+function toggleLayer(name,btn){
+  layerState[name]=!layerState[name];
+  btn.classList.toggle('off',!layerState[name]);
+  if(name==='radar'){
+    if(radarLayer){layerState.radar?radarLayer.addTo(map):map.removeLayer(radarLayer);}
+  } else if(name==='sat'){
+    if(satLayer){layerState.sat?satLayer.addTo(map):map.removeLayer(satLayer);}
+  } else if(name==='zone'){
+    if(zoneGroup){layerState.zone?zoneGroup.addTo(map):map.removeLayer(zoneGroup);}
+  }
 }
 
 // ── FETCH ─────────────────────────────────────────────
@@ -410,6 +471,7 @@ function loadAll(){
     }
 
     drawMap(dirs);
+    drawZoneOverlay(dirs); // overlay gerimis dari Open-Meteo
     renderStats(dirs);
     checkWind(dirs);
 
@@ -728,6 +790,7 @@ initMap();
 loadAll();
 setInterval(loadAll,600000);
 setInterval(loadRadar,600000);
+setInterval(loadSatellite,3600000); // satelit diperbarui tiap jam
 </script>
 </body>
 </html>
