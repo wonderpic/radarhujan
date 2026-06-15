@@ -288,29 +288,27 @@ var CENTER=[-6.9175,107.6191], CNAME='Bandung, Jawa Barat';
 var radius=10, map, mgrp, rcirc, radarLayer=null;
 var allZones=[], notifOn=false, lastNotifTime=0;
 
-// 8 arah mata angin untuk ikon di peta
-var DIRS=[
-  {name:'U',  dlat: 0.045, dlng:  0.000, angle:  0},
-  {name:'TL', dlat: 0.032, dlng:  0.036, angle: 45},
-  {name:'T',  dlat: 0.000, dlng:  0.050, angle: 90},
-  {name:'TG', dlat:-0.032, dlng:  0.036, angle:135},
-  {name:'S',  dlat:-0.045, dlng:  0.000, angle:180},
-  {name:'BD', dlat:-0.032, dlng: -0.036, angle:225},
-  {name:'B',  dlat: 0.000, dlng: -0.050, angle:270},
-  {name:'BL', dlat: 0.032, dlng: -0.036, angle:315},
+// 8 arah mata angin — offset dihitung dinamis berdasarkan radius
+// 1° lat ≈ 111km, 1° lng ≈ 96km di Indonesia
+var DIR_NAMES=[
+  {name:'U',  flat: 1.0, flng: 0.0},
+  {name:'TL', flat: 0.7, flng: 0.7},
+  {name:'T',  flat: 0.0, flng: 1.0},
+  {name:'TG', flat:-0.7, flng: 0.7},
+  {name:'S',  flat:-1.0, flng: 0.0},
+  {name:'BD', flat:-0.7, flng:-0.7},
+  {name:'B',  flat: 0.0, flng:-1.0},
+  {name:'BL', flat: 0.7, flng:-0.7},
 ];
 
-// Offset untuk radius 10km
-var DIRS10=[
-  {name:'U',  dlat: 0.090, dlng:  0.000},
-  {name:'TL', dlat: 0.063, dlng:  0.070},
-  {name:'T',  dlat: 0.000, dlng:  0.100},
-  {name:'TG', dlat:-0.063, dlng:  0.070},
-  {name:'S',  dlat:-0.090, dlng:  0.000},
-  {name:'BD', dlat:-0.063, dlng: -0.070},
-  {name:'B',  dlat: 0.000, dlng: -0.100},
-  {name:'BL', dlat: 0.063, dlng: -0.070},
-];
+function getOffsets(r){
+  var km=r*0.85; // 85% dari radius agar titik ada DI DALAM lingkaran
+  var dlat=km/111;
+  var dlng=km/96;
+  return DIR_NAMES.map(function(d){
+    return {name:d.name, dlat:d.flat*dlat, dlng:d.flng*dlng};
+  });
+}
 
 var WMO={
   0:{l:'Cerah',s:'clear',i:'☀️'},1:{l:'Cerah',s:'clear',i:'🌤️'},
@@ -448,7 +446,7 @@ function fetchDir(lat,lng,delay){
 
 // ── LOAD ALL ──────────────────────────────────────────
 function loadAll(){
-  var offset = radius>=10 ? DIRS10 : DIRS;
+  var offset = getOffsets(radius);
 
   var centerP=fetchCenter();
   var dirsP=Promise.all(offset.map(function(d,idx){
