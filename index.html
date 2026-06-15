@@ -271,8 +271,8 @@ footer{padding:.65rem 1rem;border-top:1px solid var(--bd);display:flex;justify-c
 
 <!-- STATS MINI -->
 <div class="stats">
-  <div class="sb-stat"><div class="sv" id="st-r" style="color:var(--rn)">–</div><div class="sl">Zona Hujan</div></div>
-  <div class="sb-stat"><div class="sv" id="st-c" style="color:var(--cl)">–</div><div class="sl">Zona Aman</div></div>
+  <div class="sb-stat"><div class="sv" id="st-r" style="color:var(--rn)">–</div><div class="sl">Gerimis/Hujan</div></div>
+  <div class="sb-stat"><div class="sv" id="st-c" style="color:var(--cl)">–</div><div class="sl">Zona Cerah</div></div>
   <div class="sb-stat"><div class="sv" id="st-t">–</div><div class="sl">Suhu Rata</div></div>
   <div class="sb-stat"><div class="sv" id="st-w" style="color:var(--pu)">–</div><div class="sl">Angin Max</div></div>
 </div>
@@ -480,6 +480,7 @@ function loadAll(){
     drawMap(dirs);
     drawZoneOverlay(dirs); // overlay gerimis dari Open-Meteo
     renderStats(dirs);
+    renderAlert(dirs.filter(function(z){return distKm(z.lat,z.lng)<=radius;}));
     checkWind(dirs);
 
     document.getElementById('ts').textContent='Diperbarui: '+new Date().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
@@ -708,16 +709,44 @@ function gw_label(s){return {storm:'Badai',rain:'Hujan',drizzle:'Gerimis',clear:
 function renderStats(dirs){
   var ok=dirs.filter(function(z){return z.ok;});
   if(!ok.length)return;
-  var rain=0,clear=0,totT=0,maxW=0;
+  var storm=0,rain=0,drizzle=0,clear=0,totT=0,maxW=0;
   for(var i=0;i<ok.length;i++){
-    if(ok[i].status==='rain'||ok[i].status==='storm')rain++;
-    if(ok[i].status==='clear')clear++;
-    totT+=ok[i].temp;if(ok[i].wind>maxW)maxW=ok[i].wind;
+    if(ok[i].status==='storm')storm++;
+    else if(ok[i].status==='rain')rain++;
+    else if(ok[i].status==='drizzle')drizzle++;
+    else if(ok[i].status==='clear')clear++;
+    totT+=ok[i].temp;
+    if(ok[i].wind>maxW)maxW=ok[i].wind;
   }
-  document.getElementById('st-r').textContent=rain+'/'+ok.length;
+  var notClear=ok.length-clear; // semua yang bukan cerah
+  document.getElementById('st-r').textContent=notClear+'/'+ok.length;
   document.getElementById('st-c').textContent=clear+'/'+ok.length;
   document.getElementById('st-t').textContent=Math.round(totT/ok.length)+'°';
   document.getElementById('st-w').textContent=maxW;
+
+  // Update warna label zona "tidak cerah"
+  var stR=document.getElementById('st-r');
+  if(storm>0) stR.style.color='var(--st)';
+  else if(rain>0) stR.style.color='var(--rn)';
+  else if(drizzle>0) stR.style.color='var(--dr)';
+  else stR.style.color='var(--mt)';
+}
+
+function renderAlert(active){
+  var storm=0,rain=0,drizzle=0,clear=0,total=active.filter(function(z){return z.ok;}).length;
+  if(!total)return;
+  for(var i=0;i<active.length;i++){
+    if(!active[i].ok)continue;
+    if(active[i].status==='storm')storm++;
+    else if(active[i].status==='rain')rain++;
+    else if(active[i].status==='drizzle')drizzle++;
+    else if(active[i].status==='clear')clear++;
+  }
+  if(storm>0){setAlert('danger','⚠️','Badai petir di '+storm+' zona! Hindari perjalanan ke arah terdampak.');}
+  else if(rain>=total/2){setAlert('warn','🌧️','Hujan di '+rain+'/'+total+' zona. Pilih arah lebih aman.');}
+  else if(drizzle+rain>=total/2){setAlert('warn','🌦️','Gerimis/hujan di '+(drizzle+rain)+'/'+total+' zona. Bawa payung.');}
+  else if(clear===total){setAlert('ok','☀️','Semua zona cerah. Kondisi sangat baik untuk perjalanan.');}
+  else{setAlert('ok','✅','Kondisi cukup baik. '+clear+' zona cerah dari '+total+' zona terpantau.');}
 }
 
 function checkWind(dirs){
