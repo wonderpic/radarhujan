@@ -399,11 +399,12 @@ function drawZoneOverlay(dirs){
     var col=ZCOL[z.status]||'rgba(0,0,0,0)';
     var op=ZOP[z.status]||0;
     if(op<=0)return;
-    // Blob besar semi-transparan untuk visualisasi gerimis/hujan
+    // Blob kecil di sekitar titik zona — tidak menutupi seluruh peta
+    var blobR=Math.min(distKm(z.lat,z.lng)*1000*0.4, radius*1000*0.2);
     L.circle([z.lat,z.lng],{
-      radius:radius*1000*0.55,
-      color:'none',weight:0,
-      fillColor:col,fillOpacity:op
+      radius:Math.max(800,blobR),
+      color:col,weight:1,opacity:.3,
+      fillColor:col,fillOpacity:op*0.6
     }).addTo(zoneGroup);
   });
   if(layerState.zone) zoneGroup.addTo(map);
@@ -433,12 +434,16 @@ function fetchCenter(){
     +'&forecast_days=8&timezone=Asia%2FJakarta';
   return fetch(url).then(function(r){if(!r.ok)throw new Error(r.status);return r.json();});
 }
-function fetchDir(lat,lng){
-  var url='https://api.open-meteo.com/v1/forecast'
-    +'?latitude='+lat+'&longitude='+lng
-    +'&current=temperature_2m,weather_code,wind_speed_10m,precipitation'
-    +'&forecast_days=1&timezone=Asia%2FJakarta';
-  return fetch(url).then(function(r){if(!r.ok)throw new Error(r.status);return r.json();});
+function fetchDir(lat,lng,delay){
+  return new Promise(function(resolve){
+    setTimeout(function(){
+      var url='https://api.open-meteo.com/v1/forecast'
+        +'?latitude='+lat+'&longitude='+lng
+        +'&current=temperature_2m,weather_code,wind_speed_10m,precipitation,wind_gusts_10m'
+        +'&forecast_days=1&timezone=Asia%2FJakarta';
+      fetch(url).then(function(r){if(!r.ok)throw new Error(r.status);return r.json();}).then(resolve).catch(function(){resolve(null);});
+    }, delay||0);
+  });
 }
 
 // ── LOAD ALL ──────────────────────────────────────────
@@ -446,14 +451,16 @@ function loadAll(){
   var offset = radius>=10 ? DIRS10 : DIRS;
 
   var centerP=fetchCenter();
-  var dirsP=Promise.all(offset.map(function(d){
+  var dirsP=Promise.all(offset.map(function(d,idx){
     var lat=Math.round((CENTER[0]+d.dlat)*10000)/10000;
     var lng=Math.round((CENTER[1]+d.dlng)*10000)/10000;
-    return fetchDir(lat,lng).then(function(data){
+    // Delay bertahap: 0ms, 100ms, 200ms... untuk hindari rate limit Open-Meteo
+    return fetchDir(lat,lng,idx*120).then(function(data){
+      if(!data||!data.current) throw new Error('no data');
       var c=data.current, w=gw(c.weather_code);
-      return {name:d.name,lat:lat,lng:lng,status:w.s,icon:w.i,temp:Math.round(c.temperature_2m),wind:Math.round(c.wind_speed_10m),precip:c.precipitation,ok:true};
+      return {name:d.name,lat:lat,lng:lng,status:w.s,icon:w.i,temp:Math.round(c.temperature_2m),wind:Math.round(c.wind_speed_10m||0),gust:Math.round(c.wind_gusts_10m||0),precip:c.precipitation||0,ok:true};
     }).catch(function(){
-      return {name:d.name,lat:Math.round((CENTER[0]+d.dlat)*10000)/10000,lng:Math.round((CENTER[1]+d.dlng)*10000)/10000,status:'cloudy',icon:'⛅',temp:0,wind:0,precip:0,ok:false};
+      return {name:d.name,lat:Math.round((CENTER[0]+d.dlat)*10000)/10000,lng:Math.round((CENTER[1]+d.dlng)*10000)/10000,status:'cloudy',icon:'⛅',temp:0,wind:0,gust:0,precip:0,ok:false};
     });
   }));
 
@@ -494,10 +501,15 @@ function renderNow(cur,hourly){
   // Peluang hujan jam ini
   var now=new Date(), nowPct=0;
   if(hourly&&hourly.time){
+    var nh=now.getHours(), nd2=now.toDateString();
     for(var i=0;i<hourly.time.length;i++){
-      if(new Date(hourly.time[i])>=new Date(now.getTime()-1800000)){
+      var ti=new Date(hourly.time[i]);
+      if(ti.toDateString()===nd2&&ti.getHours()===nh){
         nowPct=Math.round((hourly.precipitation_probability&&hourly.precipitation_probability[i])||0);
         break;
+      }
+      if(ti.toDateString()===nd2&&ti.getHours()<=nh){
+        nowPct=Math.round((hourly.precipitation_probability&&hourly.precipitation_probability[i])||0);
       }
     }
   }
@@ -532,9 +544,20 @@ function renderHourly(hourly){
   var temps=hourly.temperature_2m||[];
   var items=[], firstRain=-1, firstRainTime='';
 
-  for(var i=0;i<hourly.time.length&&items.length<24;i++){
+  // Cari index jam sekarang — pakai jam dari API bukan Date compare untuk hindari timezone mismatch
+  var nowHour=now.getHours();
+  var startIdx=0;
+  for(var si=0;si<hourly.time.length;si++){
+    var th=new Date(hourly.time[si]).getHours();
+    var td=new Date(hourly.time[si]).toDateString();
+    var nd=now.toDateString();
+    if(td===nd&&th===nowHour){startIdx=si;break;}
+    // Jika tanggal sama dan jam lebih kecil, tetap update startIdx
+    if(td===nd&&th<=nowHour){startIdx=si;}
+  }
+
+  for(var i=startIdx;i<hourly.time.length&&items.length<24;i++){
     var t=new Date(hourly.time[i]);
-    if(t<new Date(now.getTime()-1800000))continue;
     var pct=Math.round(probs[i]||0);
     var w=gw(codes[i]);
     var tmp=Math.round(temps[i]||0);
