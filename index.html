@@ -464,44 +464,62 @@ function fetchDir(lat,lng,delay){
 function loadAll(){
   var offset = getOffsets(radius);
 
-  var centerP=fetchCenter().catch(function(){return null;});
-  var dirsP=Promise.all(offset.map(function(d,idx){
+  // centerP TIDAK PERNAH reject — selalu resolve (null jika gagal)
+  var centerP = fetchCenter().then(function(d){return d;}).catch(function(err){
+    console.warn('fetchCenter gagal:',err);
+    return null;
+  });
+
+  // setiap fetchDir juga TIDAK PERNAH reject
+  var dirsP = Promise.all(offset.map(function(d,idx){
     var lat=Math.round((CENTER[0]+d.dlat)*10000)/10000;
     var lng=Math.round((CENTER[1]+d.dlng)*10000)/10000;
-    // Delay bertahap: 0ms, 100ms, 200ms... untuk hindari rate limit Open-Meteo
-    return fetchDir(lat,lng,idx*120).then(function(data){
-      if(!data||!data.current) throw new Error('no data');
-      var c=data.current, w=gw(c.weather_code);
-      return {name:d.name,lat:lat,lng:lng,status:w.s,icon:w.i,temp:Math.round(c.temperature_2m),wind:Math.round(c.wind_speed_10m||0),gust:Math.round(c.wind_gusts_10m||0),precip:c.precipitation||0,ok:true};
-    }).catch(function(){
-      return {name:d.name,lat:Math.round((CENTER[0]+d.dlat)*10000)/10000,lng:Math.round((CENTER[1]+d.dlng)*10000)/10000,status:'cloudy',icon:'⛅',temp:0,wind:0,gust:0,precip:0,ok:false};
-    });
+    return fetchDir(lat,lng,idx*150)
+      .then(function(data){
+        if(!data||!data.current){
+          return {name:d.name,lat:lat,lng:lng,status:'cloudy',icon:'⛅',temp:0,wind:0,gust:0,precip:0,ok:false};
+        }
+        var c=data.current, w=gw(c.weather_code);
+        return {name:d.name,lat:lat,lng:lng,status:w.s,icon:w.i,temp:Math.round(c.temperature_2m),wind:Math.round(c.wind_speed_10m||0),gust:Math.round(c.wind_gusts_10m||0),precip:c.precipitation||0,ok:true};
+      })
+      .catch(function(err){
+        console.warn('fetchDir gagal untuk '+d.name+':',err);
+        return {name:d.name,lat:lat,lng:lng,status:'cloudy',icon:'⛅',temp:0,wind:0,gust:0,precip:0,ok:false};
+      });
   }));
 
+  // Promise.all([centerP,dirsP]) TIDAK AKAN reject karena kedua promise di atas selalu resolve
   Promise.all([centerP,dirsP]).then(function(res){
     var cd=res[0], dirs=res[1];
     allZones=dirs;
+
+    var anyOk = dirs.some(function(z){return z.ok;});
 
     if(cd&&cd.current&&cd.hourly){
       renderNow(cd.current,cd.hourly);
       renderHourly(cd.hourly);
       checkRainNotif(cd.hourly);
+    } else {
+      console.warn('Data CENTER tidak tersedia, prediksi tidak bisa ditampilkan');
     }
     if(cd&&cd.daily){
       renderWeekly(cd.daily);
     }
 
     drawMap(dirs);
-    drawZoneOverlay(dirs); // overlay gerimis dari Open-Meteo
+    drawZoneOverlay(dirs);
     renderStats(dirs);
     renderAlert(dirs.filter(function(z){return distKm(z.lat,z.lng)<=radius;}));
     checkWind(dirs);
 
     document.getElementById('ts').textContent='Diperbarui: '+new Date().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
-  }).catch(function(e){
-    console.error('loadAll error:',e);
-    showToast('⚠️ Sebagian data gagal','Beberapa data cuaca tidak termuat. Tekan Refresh untuk mencoba lagi.','warn');
+
+    // Hanya tampilkan toast error jika BENAR-BENAR semua data gagal
+    if(!cd && !anyOk){
+      showToast('⚠️ Koneksi lambat','Data cuaca belum termuat. Tekan Refresh untuk mencoba lagi.','warn');
+    }
   });
+  // Tidak ada .catch() di akhir karena Promise.all([centerP,dirsP]) dijamin selalu resolve
 }
 
 // ── CUACA SEKARANG ────────────────────────────────────
