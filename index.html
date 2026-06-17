@@ -266,6 +266,7 @@ footer{padding:.65rem 1rem;border-top:1px solid var(--bd);display:flex;justify-c
     <div class="lr"><div class="ld" style="background:#fbbf24"></div>Gerimis</div>
     <div class="lr"><div class="ld" style="background:#34d399"></div>Cerah</div>
     <div class="lr" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--bd)"><div class="ld" style="background:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.3)"></div>Awan (satelit NASA)</div>
+    <div class="lr" id="radar-status" style="font-family:var(--mono);font-size:9px">Memuat radar...</div>
   </div>
 </div>
 
@@ -363,13 +364,23 @@ function loadRadar(){
     .then(function(d){
       if(radarLayer){map.removeLayer(radarLayer);radarLayer=null;}
       var frames=d.radar&&d.radar.past?d.radar.past:[];
-      if(!frames.length)return;
-      var url=d.host+frames[frames.length-1].path+'/256/{z}/{x}/{y}/2/1_1.png';
+      var rs=document.getElementById('radar-status');
+      if(!frames.length){if(rs)rs.textContent='Tidak ada data radar';return;}
+      var latest=frames[frames.length-1];
+      if(rs){
+        var ts=new Date(latest.time*1000);
+        rs.textContent='Radar: '+ts.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+      }
+      // colorScheme 3 (Universal Blue) lebih kontras & mudah dilihat dibanding scheme 2
+      var url=d.host+latest.path+'/512/{z}/{x}/{y}/3/1_1.png';
       var BLANK='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-      radarLayer=L.tileLayer(url,{opacity:0.6,zIndex:300,attribution:'RainViewer',errorTileUrl:BLANK});
+      radarLayer=L.tileLayer(url,{opacity:0.85,zIndex:300,attribution:'RainViewer',errorTileUrl:BLANK,tileSize:512});
       radarLayer.on('tileerror',function(e){e.tile.style.display='none';});
       if(layerState.radar) radarLayer.addTo(map);
-    }).catch(function(){});
+    }).catch(function(){
+      var rs=document.getElementById('radar-status');
+      if(rs)rs.textContent='Radar gagal dimuat';
+    });
 }
 
 // ── SATELIT AWAN — NASA GIBS (foto satelit real-time) ─
@@ -453,7 +464,7 @@ function fetchDir(lat,lng,delay){
 function loadAll(){
   var offset = getOffsets(radius);
 
-  var centerP=fetchCenter();
+  var centerP=fetchCenter().catch(function(){return null;});
   var dirsP=Promise.all(offset.map(function(d,idx){
     var lat=Math.round((CENTER[0]+d.dlat)*10000)/10000;
     var lng=Math.round((CENTER[1]+d.dlng)*10000)/10000;
@@ -488,7 +499,8 @@ function loadAll(){
 
     document.getElementById('ts').textContent='Diperbarui: '+new Date().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
   }).catch(function(e){
-    showToast('❌ Gagal','Periksa koneksi internet lalu tekan Refresh.','err');
+    console.error('loadAll error:',e);
+    showToast('⚠️ Sebagian data gagal','Beberapa data cuaca tidak termuat. Tekan Refresh untuk mencoba lagi.','warn');
   });
 }
 
