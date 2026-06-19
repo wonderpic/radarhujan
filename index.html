@@ -332,15 +332,21 @@ function distKm(lat,lng){
 // ── MAP ───────────────────────────────────────────────
 function initMap(){
   map=L.map('map',{zoomControl:true,attributionControl:true}).setView(CENTER,9);
-  // Base map satelit Esri World Imagery — selalu tersedia di semua zoom, mirip Google Satellite
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
-    attribution:'© Esri, Maxar, Earthstar Geographics',maxZoom:19
+
+  // ── Layer 1 (paling bawah): peta dasar gelap TANPA label ──
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',{
+    attribution:'© OSM © CARTO',maxZoom:19,subdomains:'abcd',zIndex:1
   }).addTo(map);
-  // Label jalan & kota tipis di atasnya (referensi, transparan background)
+
+  // ── Layer 2: radar & satelit awan ditambahkan via loadRadar()/loadSatellite() (zIndex 150 & 300) ──
+  mgrp=L.layerGroup({pane:'markerPane'}).addTo(map); // ikon zona — selalu di pane marker (otomatis paling atas)
+
+  // ── Layer 3 (paling atas, SATU-SATUNYA label): nama jalan & kota ──
+  // zIndex tinggi memastikan tidak pernah tertimpa radar/satelit manapun
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png',{
-    attribution:'© CARTO',maxZoom:19,subdomains:'abcd',opacity:0.9,zIndex:50
+    attribution:'',maxZoom:19,subdomains:'abcd',zIndex:400
   }).addTo(map);
-  mgrp=L.layerGroup().addTo(map);
+
   addMeMarker();
   loadRadar();
   loadSatellite();
